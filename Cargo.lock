@@ -504,6 +504,7 @@ dependencies = [
  "pem",
  "ring",
  "time 0.3.23",
+ "x509-parser",
  "yasna",
 ]
 
@@ -962,6 +963,7 @@ dependencies = [
  "lazy_static",
  "nom",
  "oid-registry",
+ "ring",
  "rusticata-macros",
  "thiserror",
  "time 0.3.23",
