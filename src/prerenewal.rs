@@ -1,41 +1,39 @@
 use std::fs;
 use std::path::PathBuf;
 
-use rcgen::{DnType, DnValue};
-use rcgen::DnValue::{*};
+use x509_parser::nom::AsBytes;
+use x509_parser::pem::Pem;
 
-pub fn read_certificate_being_renewed(path: PathBuf) -> Result<Vec<u8>, String> {
-    let cert_bytes = fs::read(path).map_err(|e| e.to_string())?;
-
-    // let (_, old_cert) = x509_parser::parse_x509_certificate(cert_bytes.as_slice()).map_err(|e| e.to_string())?;
-
-    Ok(cert_bytes)
+#[derive(Default)]
+pub struct Cert<'a> {
+    pub old_cert: Option<x509_parser::certificate::X509Certificate<'a>>,
+    pub renewed_cert: Option<x509_parser::certificate::X509Certificate<'a>>,
 }
 
-pub fn extact_fields_from_certificate(cert_bytes: Vec<u8>, key_pair: rcgen::KeyPair) -> Result<(String, String, String, String), String> {
-    let r = rcgen::CertificateParams::from_ca_cert_pem(String::from_utf8(cert_bytes).map_err(|e| e.to_string())?.as_str(), key_pair).map_err(|e| e.to_string())?;
+pub fn pem_to_der_bytes(path: PathBuf) -> Result<Pem, String> {
+    let data = fs::read(path).map_err(|e| e.to_string())?;
+    let (_, pem) = x509_parser::pem::parse_x509_pem(data.as_slice()).map_err(|e| e.to_string())?;
 
-    Ok(
-        (dnvalue_to_string(r.distinguished_name.get(&DnType::CommonName).unwrap()),
-         dnvalue_to_string(r.distinguished_name.get(&DnType::OrganizationName).unwrap()),
-         dnvalue_to_string(r.distinguished_name.get(&DnType::OrganizationalUnitName).unwrap()),
-         dnvalue_to_string(r.distinguished_name.get(&DnType::CountryName).unwrap()))
-    )
+    Ok(pem)
 }
 
-pub fn dnvalue_to_string(val: &DnValue) -> String {
-    match val {
-        Utf8String(s) |
-        PrintableString(s) => {
-            s.to_string()
-        }
+impl <'a> Cert<'a> {
 
-        TeletexString(v) |
-        UniversalString(v) |
-        BmpString(v) => {
-            String::from_utf8(v.to_vec()).unwrap()
-        }
+    pub fn load_old_cert(&mut self, pem: &'a Pem) -> Result<(), String> {
 
-        _ => {"".to_string()}
+        let (_, old_cert) = x509_parser::parse_x509_certificate(pem.contents.as_bytes()).map_err(|e| e.to_string())?;
+
+        self.old_cert = Some(old_cert);
+
+        Ok(())
+    }
+
+    pub fn load_new_cert(&mut self, pem: &'a Pem) -> Result<(), String> {
+
+        let (_, new_cert) = x509_parser::parse_x509_certificate(pem.contents.as_bytes()).map_err(|e| e.to_string())?;
+
+        self.renewed_cert = Some(new_cert);
+
+        Ok(())
     }
 }
