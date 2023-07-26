@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::slice::Iter;
 use std::vec::IntoIter;
 use rcgen::{DnType, DnValue};
-use crate::prerenewal::SigAlg;
+use crate::prerenewal::{RSA2048, RSA3072, RSA4096, SigAlg};
 
 mod validate;
 mod prerenewal;
@@ -105,8 +105,7 @@ cg5iXC/wd76lfWsRZZ1rwPxrtHrB8vwolsZjAX+OqlbR8e/UE+r7PWnW
     // let key_pair = cx.generate_key_pair().unwrap();
 
     // println!("{:?}", key_pair.public_key_pem());
-
-    let pem_bytes = prerenewal::pem_to_der_bytes(PathBuf::from("example.com.crt")).unwrap();
+    // let pem_bytes = prerenewal::pem_to_der_bytes(PathBuf::from("example.com.crt")).unwrap();
     // cx.load_old_cert(&pem_bytes).unwrap();
     //
     // cx.with_signature_alg(SigAlg::PkcsRsaSha256).unwrap();
@@ -117,7 +116,7 @@ cg5iXC/wd76lfWsRZZ1rwPxrtHrB8vwolsZjAX+OqlbR8e/UE+r7PWnW
     // let test2 = test.c
     // let ccx = prerenewal::Cert::generate_key_pair(&rcgen::PKCS_RSA_SHA256.).unwrap();
 
-    let mut ccx = prerenewal::Cert::new(SigAlg::PkcsEcdsaP256);
+    let mut ccx = prerenewal::Cert::new(SigAlg::Rsa(&RSA4096));
     println!("ccx: {}", ccx.signature_alg);
 
     // ccx.with_signature_alg(SigAlg::PkcsEd25519).unwrap();
