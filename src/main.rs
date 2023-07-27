@@ -105,7 +105,7 @@ cg5iXC/wd76lfWsRZZ1rwPxrtHrB8vwolsZjAX+OqlbR8e/UE+r7PWnW
     // let key_pair = cx.generate_key_pair().unwrap();
 
     // println!("{:?}", key_pair.public_key_pem());
-    // let pem_bytes = prerenewal::pem_to_der_bytes(PathBuf::from("example.com.crt")).unwrap();
+    let pem_bytes = prerenewal::pem_to_der_bytes(PathBuf::from("example.com.crt")).unwrap();
     // cx.load_old_cert(&pem_bytes).unwrap();
     //
     // cx.with_signature_alg(SigAlg::PkcsRsaSha256).unwrap();
@@ -116,14 +116,19 @@ cg5iXC/wd76lfWsRZZ1rwPxrtHrB8vwolsZjAX+OqlbR8e/UE+r7PWnW
     // let test2 = test.c
     // let ccx = prerenewal::Cert::generate_key_pair(&rcgen::PKCS_RSA_SHA256.).unwrap();
 
-    let mut ccx = prerenewal::Cert::new(SigAlg::Rsa(&RSA4096));
+    let mut ccx = prerenewal::Cert::new(SigAlg::Rsa(&RSA2048));
     println!("ccx: {}", ccx.signature_alg);
+    ccx.load_old_cert(&pem_bytes).unwrap();
 
     // ccx.with_signature_alg(SigAlg::PkcsEd25519).unwrap();
     // println!("ccx: {}", ccx.signature_alg);
     ccx.generate_key_pair().unwrap();
 
-    println!("ccx priv key: \n{}", ccx.priv_key.unwrap().serialize_pem())
+    ccx.generate_signing_request();
+
+    // println!("ccx priv key: \n{}", ccx.priv_key.unwrap().serialize_pem());
+
+
     // prerenewal::generate_key_pair(&rcgen::PKCS_RSA_SHA256);
 }
 

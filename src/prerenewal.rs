@@ -1,13 +1,17 @@
 use std::fmt::{Display, Formatter};
 use std::fs;
+use std::io::Read;
+use std::net::IpAddr;
 use std::path::PathBuf;
+use std::str::FromStr;
 use pkcs8::{EncodePrivateKey, LineEnding};
 use rand::rngs::OsRng;
 use rand::thread_rng;
-use rcgen::{KeyPair};
+use rcgen::{DistinguishedName, DnType, DnValue, KeyPair, SanType};
 
-use x509_parser::nom::AsBytes;
+use x509_parser::nom::{AsBytes, HexDisplay};
 use x509_parser::pem::Pem;
+use x509_parser::prelude::GeneralName;
 use crate::prerenewal::SigAlg::{*};
 
 #[derive(Debug)]
@@ -137,8 +141,100 @@ impl <'a> Cert<'a> {
         Ok(())
     }
 
-    pub fn generate_signing_request() {
+    pub fn generate_signing_request(self) {
+        println!("generate_signing_request");
+        /*
+            Rfc822Name(String),
+            DnsName(String),
+            URI(String),
+            IpAddress(IpAddr),
+        */
 
+        /*
+            ** no ** OtherName(Oid<'a>, &'a [u8]),
+
+            /// More or less an e-mail, the format is not checked.
+            Rfc822Name(String), -> RFC822Name(&'a str),
+
+            /// A hostname, format is not checked.
+            DnsName(String), -> DNSName(&'a str),
+
+            /// X400Address,
+            ** no ** X400Address(Any<'a>),
+
+            /// RFC5280 defines several string types, we always try to parse as utf-8
+            /// which is more or less a superset of the string types.
+            ** no ** DirectoryName(X509Name<'a>),
+
+            /// EDIPartyName
+            ** no ** EDIPartyName(Any<'a>),
+
+            /// An uniform resource identifier. The format is not checked.
+            URI(String), -> URI(&'a str),
+
+            /// An ip address, provided as encoded.
+            IpAddress(IpAddr), -> IPAddress(&'a [u8]),
+            RegisteredID(Oid<'a>),
+        */
+        let a: Vec<SanType> = self.old_cert.as_ref().unwrap().subject_alternative_name().unwrap().unwrap()
+            .value
+            .general_names.to_vec().into_iter()
+                // convert between x509_parser and rcgen types
+                // x509_parser defines more members for the san enum than rcgen so we will
+                // have to consolidate
+                .map(|item| {
+                    match item {
+                        GeneralName::RFC822Name(s) => {
+                            println!("RFC822Name: {s}");
+                            SanType::Rfc822Name(s.to_string())
+                        },
+                        GeneralName::DNSName(s) => {
+                            println!("DNSName: {s}");
+                            SanType::DnsName(s.to_string())
+                        },
+                        GeneralName::URI(u) => {
+                            println!("URI: {u}");
+                            SanType::URI(u.to_string())
+                        },
+                        GeneralName::IPAddress(bytes) => {
+                            println!("IPAddress: {bytes:?}");
+                            let xx: Vec<String> = bytes.into_iter().map(|byte| byte.to_string()).collect();
+
+                            println!("xx: {:?}", xx.join(".").as_str());
+                            let ipaddr = IpAddr::from_str(xx.join(".").as_str());
+                            SanType::IpAddress(ipaddr.unwrap())
+                        },
+                        // best we can do is convert to string
+                        x => {
+                            SanType::Rfc822Name(x.to_string())
+                        }
+                    }
+                }
+
+                ).collect();
+
+        let mut params = rcgen::CertificateParams::default();
+        params.subject_alt_names = a;
+        let mut dn = DistinguishedName::new();
+
+        // this will add a single cn entry, may need to support multiple cn
+        let cn = self.old_cert.unwrap().subject.iter_common_name().next().unwrap().as_str().unwrap().to_string();
+        dn.push(DnType::CommonName, DnValue::PrintableString(cn));
+        // TODO: need to add other dn entries
+
+        params.distinguished_name = dn;
+        params.key_pair = self.priv_key;
+        match self.signature_alg {
+            SigAlg::Rsa(_) => {params.alg = &rcgen::PKCS_RSA_SHA256}
+            SigAlg::EcdsaP256 => {params.alg = &rcgen::PKCS_ECDSA_P256_SHA256}
+            SigAlg::EcdsaP384 => {params.alg = &rcgen::PKCS_ECDSA_P384_SHA384},
+        };
+
+        let templ = rcgen::Certificate::from_params(params).unwrap();
+        let csr = templ.serialize_request_pem().unwrap();
+        println!("{csr}")
+        // params.subject_alt_names
+        // let old_cert: rcgen::Certificate = self.old_cert.unwrap();
     }
 }
 
