@@ -24,9 +24,14 @@ pub fn validate(old: X509Certificate, new: X509Certificate, priv_key: KeyPair, e
 
 fn minimum_valid_period(cert: &X509Certificate, grace_period_days: u64) -> bool {
     let minimum_days_before_expiration = Duration::new(60*60*24* grace_period_days, 0);
-    let duration_to_expiration = cert.validity.time_to_expiration().unwrap();
+    // todo: get rid of this unwrap
+    if let Some(duration_to_expiration) = cert.validity.time_to_expiration() {
+        duration_to_expiration >= minimum_days_before_expiration
+    } else {
+        false
+    }
 
-    duration_to_expiration >= minimum_days_before_expiration
+
 }
 
 fn cert_fields_match(old: &X509Certificate, new: &X509Certificate) -> bool {

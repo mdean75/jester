@@ -1,11 +1,7 @@
-use std::{fmt, fs};
-use std::fmt::Formatter;
-use std::ops::Deref;
 use std::path::PathBuf;
-use std::slice::Iter;
+use std::process::exit;
 use std::vec::IntoIter;
-use rcgen::{DnType, DnValue};
-use crate::prerenewal::{RSA2048, RSA3072, RSA4096, SigAlg};
+use crate::prerenewal::{RSA2048, RSA4096, SigAlg};
 
 mod validate;
 mod prerenewal;
@@ -15,14 +11,26 @@ fn main() {
 
     // Your initial iterator of some type (let's assume it's called `iter`).
     // For this example, let's assume it's an iterator of integers.
-    let iter: IntoIter<i32> = vec![].into_iter();
+    let list = vec![1,23,9,3,4];
+    let iter: IntoIter<i32> = list.clone().into_iter();
+
+    println!("list:{:?}", list);
+
+    let iterx: Result<Vec<String>, String> = iter.clone().map(|x| -> Result<String, String> {
+
+        // x.to_string()
+
+        Ok(x.to_string())
+    }).collect();
+
+    // println!("iterx: {:?}", iterx.unwrap());
 
     // Use the `map` function to convert each element to a string.
     let string_iter: Vec<String> = iter.map(|item| item.to_string()).collect();
 
     // Convert the `Vec<String>` into an `Option<Vec<String>>`.
     let result: Option<Vec<String>> = if string_iter.is_empty() {None} else { Some(string_iter) };//Option::from(string_iter);
-
+    //
     // If the original iterator is empty, `result` will be `None`.
     println!("{:?}", result); // Output: Some(["1", "2", "3", "4", "5"])
 
@@ -31,13 +39,13 @@ fn main() {
     println!("Git Commit: {}", env!("VERGEN_GIT_SHA"));
     println!("Build Timestamp: {}", env!("VERGEN_BUILD_TIMESTAMP"));
 
-    let priv_key_str = "-----BEGIN PRIVATE KEY-----
+    let _priv_key_str = "-----BEGIN PRIVATE KEY-----
 MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgz1CrJYfBgwhY8B8K
 bDibjnPiB/eQId1/65C2fn1LZ3GhRANCAASuhnXaI39USOubBM2av6kx9hwSI3oK
 /c133Mz9u/1gFHsR5aGKA6A5wVf6d2XhOz8mD7jTsRRVo7yfzudLjD9/
 -----END PRIVATE KEY-----";
 
-    let cert_bytes = b"-----BEGIN CERTIFICATE-----
+    let _cert_bytes = b"-----BEGIN CERTIFICATE-----
 MIIBrjCCAVSgAwIBAgIILYaEFjUTHAQwCgYIKoZIzj0EAwIwIjEgMB4GA1UEAxMX
 SW50ZXJtZWRpYXRlIFNpZ25pbmcgY2EwHhcNMjIxMDMwMTQyMDU0WhcNMjMxMDMw
 MTQyMDU0WjAyMQ8wDQYDVQQDEwZzZXJ2ZXIxCTAHBgNVBAoTADEJMAcGA1UECxMA
@@ -50,7 +58,7 @@ nlZq8x9WgzaSXSvs6FAt+AIgStMaHgyHPinpj+3HhSXHj/vNWYJO6OBxpG9fduRj
 7YA=
 -----END CERTIFICATE-----";
 
-    let cert_str = "-----BEGIN CERTIFICATE-----
+    let _cert_str = "-----BEGIN CERTIFICATE-----
 MIIBrjCCAVSgAwIBAgIILYaEFjUTHAQwCgYIKoZIzj0EAwIwIjEgMB4GA1UEAxMX
 SW50ZXJtZWRpYXRlIFNpZ25pbmcgY2EwHhcNMjIxMDMwMTQyMDU0WhcNMjMxMDMw
 MTQyMDU0WjAyMQ8wDQYDVQQDEwZzZXJ2ZXIxCTAHBgNVBAoTADEJMAcGA1UECxMA
@@ -64,7 +72,7 @@ nlZq8x9WgzaSXSvs6FAt+AIgStMaHgyHPinpj+3HhSXHj/vNWYJO6OBxpG9fduRj
 -----END CERTIFICATE-----";
 
 
-    let bad_key = "-----BEGIN PRIVATE KEY-----
+    let _bad_key = "-----BEGIN PRIVATE KEY-----
 MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgsc61hFNRxArpb2uL
 zxj/3k1VRhzBBD8Db78FRRurFS6hRANCAAQpENsVS0j9fPROTMQOMyY5DHUsV5kG
 cg5iXC/wd76lfWsRZZ1rwPxrtHrB8vwolsZjAX+OqlbR8e/UE+r7PWnW
@@ -105,7 +113,13 @@ cg5iXC/wd76lfWsRZZ1rwPxrtHrB8vwolsZjAX+OqlbR8e/UE+r7PWnW
     // let key_pair = cx.generate_key_pair().unwrap();
 
     // println!("{:?}", key_pair.public_key_pem());
-    let pem_bytes = prerenewal::pem_to_der_bytes(PathBuf::from("example.com.crt")).unwrap();
+
+    let mut ccx = prerenewal::Cert::new(SigAlg::Rsa(&RSA2048));
+    println!("ccx: {}", ccx.signature_alg);
+
+    let pem_bytes = prerenewal::pem_to_der_bytes(PathBuf::from("example.com.crt")).unwrap_or_else(|_| exit(2));
+
+
     // cx.load_old_cert(&pem_bytes).unwrap();
     //
     // cx.with_signature_alg(SigAlg::PkcsRsaSha256).unwrap();
@@ -116,16 +130,19 @@ cg5iXC/wd76lfWsRZZ1rwPxrtHrB8vwolsZjAX+OqlbR8e/UE+r7PWnW
     // let test2 = test.c
     // let ccx = prerenewal::Cert::generate_key_pair(&rcgen::PKCS_RSA_SHA256.).unwrap();
 
-    let mut ccx = prerenewal::Cert::new(SigAlg::Rsa(&RSA2048));
-    println!("ccx: {}", ccx.signature_alg);
-    ccx.load_old_cert(&pem_bytes).unwrap();
+    // let mut ccx = prerenewal::Cert::new(SigAlg::Rsa(&RSA2048));
+    // println!("ccx: {}", ccx.signature_alg);
+    ccx.load_old_cert(&pem_bytes);//.unwrap();
 
     // ccx.with_signature_alg(SigAlg::PkcsEd25519).unwrap();
     // println!("ccx: {}", ccx.signature_alg);
-    ccx.generate_key_pair().unwrap();
+    ccx.generate_key_pair();//.unwrap();
+
+    // ccx.csr = Some(ccx.generate_signing_request().unwrap());
 
     ccx.generate_signing_request();
 
+    println!("ccx csr pem:\n {}", ccx.csr_pem)
     // println!("ccx priv key: \n{}", ccx.priv_key.unwrap().serialize_pem());
 
 
