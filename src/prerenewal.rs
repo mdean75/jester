@@ -45,11 +45,15 @@ impl Display for SigAlg {
 
 pub struct Cert<'a> {
     pub old_cert: Option<x509_parser::certificate::X509Certificate<'a>>,
+    pub old_cert_pem: Vec<u8>,
     pub renewed_cert: Option<x509_parser::certificate::X509Certificate<'a>>,
     // pub priv_key: Option<Rc<rcgen::KeyPair>>,
     pub priv_key: Option<rcgen::KeyPair>,
+    pub priv_key_pem: Vec<u8>,
+    pub old_priv_key_pem: Vec<u8>,
     pub csr: Option<rcgen::CertificateSigningRequest>,
     pub csr_pem: String,
+    pub csr_der: Vec<u8>,
     pub signature_alg: SigAlg, //&'a SignatureAlgorithm
 }
 
@@ -57,10 +61,14 @@ impl <'a> Default for Cert<'a> {
     fn default() -> Self {
         Cert{
             old_cert: None,
+            old_cert_pem: vec![],
             renewed_cert: None,
             priv_key: None,
+            priv_key_pem: vec![],
+            old_priv_key_pem: vec![],
             csr: None,
             csr_pem: "".to_string(),
+            csr_der: vec![],
             signature_alg: Rsa(&RSA3072),
         }
     }
@@ -70,10 +78,14 @@ impl <'a> Cert<'a> {
     pub fn new(alg: SigAlg) -> Self {
         Cert{
             old_cert: None,
+            old_cert_pem: vec![],
             renewed_cert: None,
             priv_key: None,
+            priv_key_pem: vec![],
+            old_priv_key_pem: vec![],
             csr: None,
             csr_pem: "".to_string(),
+            csr_der: vec![],
             signature_alg: alg,
         }
     }
@@ -83,6 +95,19 @@ impl <'a> Cert<'a> {
         let (_, old_cert) = x509_parser::parse_x509_certificate(pem.contents.as_bytes()).map_err(|e| e.to_string())?;
 
         self.old_cert = Some(old_cert);
+        self.old_cert_pem = pem.contents.to_vec();
+        // self.old_cert_pem = pem.contents.as_slice().to_vec();
+        // println!("load old cert pem: {}", self.old_cert_pem)
+
+        Ok(())
+    }
+
+    pub fn load_privatekey(&mut self, path: PathBuf) -> Result<(), String> {
+
+        let pem_bytes = fs::read(path).unwrap();
+        self.old_priv_key_pem = pem_bytes.to_vec();
+
+        // self.ol = Some(rcgen::KeyPair::from_pem(String::from_utf8(pem_bytes).unwrap().as_str()).unwrap());
 
         Ok(())
     }
@@ -98,7 +123,6 @@ impl <'a> Cert<'a> {
 
     pub fn generate_key_pair(&mut self) -> Result<(), String> {
 
-        println!("setting signature algorithm");
         let signature_algorithm = match self.signature_alg {
             Rsa(bits) => {
                 // from https://www.jscape.com/blog/should-i-start-using-4096-bit-rsa-keys and
@@ -110,24 +134,26 @@ impl <'a> Cert<'a> {
                 // security strength of less than 112 bits (shaded in orange above) are no longer approved for
                 // applying cryptographic protection on Federal government information thus 2048-bit
                 // keys should be considered the bare minimum key length for RSA.
-                println!("using rsa to generate private key");
                 let mut rng = thread_rng();
                 let key = rsa::RsaPrivateKey::new(&mut rng, bits.bit_size).map_err(|e| e.to_string())?;
-                println!("private key created, serialize pem");
                 let key_pem = key.to_pkcs8_pem(LineEnding::default()).map_err(|e| e.to_string())?;
-                println!("creating keypair");
+
+                self.priv_key_pem = key_pem.to_string().into_bytes();
+
                 KeyPair::from_pem(key_pem.as_str()).map_err(|e| e.to_string())?
             }
             EcdsaP256 => {
                 let secret_key = p256::SecretKey::random(&mut OsRng);
                 let secret_key_pem = secret_key.to_pkcs8_pem(LineEnding::default()).map_err(|e| e.to_string())?;
 
+                self.priv_key_pem = secret_key_pem.to_string().into_bytes();
                 KeyPair::from_pem(secret_key_pem.as_str()).map_err(|e| e.to_string())?
             }
             EcdsaP384 => {
                 let key = p384::SecretKey::random(&mut OsRng);
                 let key_pem = key.to_pkcs8_pem(LineEnding::default()).map_err(|e| e.to_string())?;
 
+                self.priv_key_pem = key_pem.to_string().into_bytes();
                 KeyPair::from_pem(key_pem.as_str()).map_err(|e| e.to_string())?
             }
         };
@@ -180,8 +206,14 @@ impl <'a> Cert<'a> {
                     .collect();
 
                 params.subject_alt_names = san_type_list?;
+
             }
 
+
+            // let remote211 = IpAddr::from_str("192.168.40.211").unwrap();
+            // let additional_sans: &mut Vec<SanType> = &mut vec![SanType::IpAddress(remote211)];
+            //
+            // params.subject_alt_names.append(additional_sans);
 
 
             let mut dn = DistinguishedName::new();
@@ -228,8 +260,10 @@ impl <'a> Cert<'a> {
         let templ = rcgen::Certificate::from_params(params).map_err(|e| e.to_string())?;
         let csr_pem = templ.serialize_request_pem().map_err(|e| e.to_string())?;
 
+        let csr_der = templ.serialize_request_der().map_err(|e| e.to_string())?;
         let csr = rcgen::CertificateSigningRequest::from_pem(csr_pem.as_str()).map_err(|e| e.to_string())?;
 
+        self.csr_der = csr_der;
         self.csr = Some(csr);
         self.csr_pem = csr_pem;
 
@@ -238,11 +272,11 @@ impl <'a> Cert<'a> {
     }
 }
 
-pub fn pem_to_der_bytes(path: PathBuf) -> Result<Pem, String> {
+pub fn pem_to_der_bytes(path: PathBuf) -> Result<(Pem, Vec<u8>), String> {
     let data = fs::read(path).map_err(|e| e.to_string())?;
     let (_, pem) = x509_parser::pem::parse_x509_pem(data.as_slice()).map_err(|e| e.to_string())?;
 
-    Ok(pem)
+    Ok((pem, data))
 }
 
 
