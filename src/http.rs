@@ -80,9 +80,9 @@ pub fn request_client_certificate(mut cert: prerenewal::Cert) {
     match response {
         Ok(res) => {
 
-            let decoded_bytes = base64_decode(res.text().unwrap());
+            let decoded_str = base64_light::base64_decode(res.text().unwrap().as_str());
 
-            let certificates = Pkcs7::from_der(decoded_bytes.as_slice()).unwrap()
+            let certificates = Pkcs7::from_der(decoded_str.as_bytes()).unwrap()
                 .decode_certificates();
 
             // only need to get the leaf cert which should always be first even if this is a bundle
@@ -98,82 +98,4 @@ pub fn request_client_certificate(mut cert: prerenewal::Cert) {
         },
         Err(e) => println!("err: {}", e.to_string())
     }
-}
-
-// this is backup solution and can be removed, leaving for now for further testing
-fn openssl_convert_to_pem(encoded_cert: String) -> Vec<u8> {
-    let echo_cert = std::process::Command::new("echo")
-        .arg(encoded_cert)
-        .stdout(Stdio::piped())
-        .spawn()
-        .unwrap();
-
-    let openssl_base64 = std::process::Command::new("openssl")
-        .args(["base64", "-d"])
-        .stdin(Stdio::from(echo_cert.stdout.unwrap()))
-        .stdout(Stdio::piped())
-        .spawn().unwrap();
-
-    let openssl_pkcs7 = std::process::Command::new("openssl")
-        .args(["pkcs7", "-inform", "DER", "-outform", "PEM", "-print_certs"])
-        .stdin(Stdio::from(openssl_base64.stdout.unwrap()))
-        .output()
-        .unwrap();
-
-    // println!("{}", String::from_utf8(openssl_pkcs7.stderr).unwrap());
-    openssl_pkcs7.stdout
-
-    // vec![]
-}
-
-#[cfg(target_os = "macos")]
-fn base64_decode(encoded_data: String) -> Vec<u8> {
-    let echo_data_cmd = std::process::Command::new("echo")
-        .arg(encoded_data)
-        .stdout(Stdio::piped())
-        .spawn()
-        .unwrap();
-
-    let base64_decode_cmd = std::process::Command::new("base64")
-        .args(["-D"])
-        .stdin(Stdio::from(echo_data_cmd.stdout.unwrap()))
-        .output()
-        .unwrap();
-
-    base64_decode_cmd.stdout
-}
-
-#[cfg(target_os = "linux")]
-fn base64_decode(encoded_data: String) -> Vec<u8> {
-    let echo_data_cmd = std::process::Command::new("echo")
-        .arg(encoded_data)
-        .stdout(Stdio::piped())
-        .spawn()
-        .unwrap();
-
-    let base64_decode_cmd = std::process::Command::new("base64")
-        .args(["-d"])
-        .stdin(Stdio::from(echo_data_cmd.stdout.unwrap()))
-        .output()
-        .unwrap();
-
-    base64_decode_cmd.stdout
-}
-
-// TODO: NEED TO CONFIRM THIS WORKS ON WINDOWS
-#[cfg(target_os = "windows")]
-fn base64_decode(encoded_data: String) -> Vec<u8> {
-    let echo_data_cmd = std::process::Command::new("echo")
-        .arg(encoded_data)
-        .stdout(Stdio::piped())
-        .spawn()
-        .unwrap();
-
-    let base64_decode_cmd = std::process::Command::new("certutil")
-        .args(["-decode"])
-        .stdin(Stdio::from(echo_data_cmd.stdout.unwrap()))
-        .output()
-        .unwrap();
-
-    base64_decode_cmd.stdout
 }
