@@ -854,9 +854,7 @@ checksum = "62b02a5381cc465bd3041d84623d0fa3b66738b52b8e2fc3bab8ad63ab032f4a"
 name = "jester"
 version = "0.1.0"
 dependencies = [
- "base64",
  "base64_light",
- "data-encoding",
  "ecdsa",
  "p256",
  "p384",
@@ -866,7 +864,6 @@ dependencies = [
  "rand 0.8.5",
  "rcgen",
  "reqwest",
- "ring",
  "rsa 0.9.2",
  "rustls",
  "rustls-pemfile",

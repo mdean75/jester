@@ -55,6 +55,7 @@ pub struct Cert<'a> {
     pub csr_pem: String,
     pub csr_der: Vec<u8>,
     pub signature_alg: SigAlg, //&'a SignatureAlgorithm
+    pub bundle_pem: Vec<u8>,
 }
 
 impl <'a> Default for Cert<'a> {
@@ -70,6 +71,7 @@ impl <'a> Default for Cert<'a> {
             csr_pem: "".to_string(),
             csr_der: vec![],
             signature_alg: Rsa(&RSA3072),
+            bundle_pem: vec![]
         }
     }
 }
@@ -87,6 +89,7 @@ impl <'a> Cert<'a> {
             csr_pem: "".to_string(),
             csr_der: vec![],
             signature_alg: alg,
+            bundle_pem: vec![]
         }
     }
 
@@ -102,6 +105,13 @@ impl <'a> Cert<'a> {
         Ok(())
     }
 
+    pub fn load_cacerts(&mut self, path: PathBuf) -> Result<(), String> {
+        let pem_bytes = fs::read(path).map_err(|e| e.to_string())?;
+        self.bundle_pem = pem_bytes;
+        
+        Ok(())
+    }
+    
     pub fn load_privatekey(&mut self, path: PathBuf) -> Result<(), String> {
 
         let pem_bytes = fs::read(path).unwrap();
