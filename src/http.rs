@@ -9,7 +9,7 @@ use reqwest::Identity;
 use base64_light::{base64_decode, base64_encode_bytes};
 
 
-use crate::prerenewal;
+use crate::certificate;
 
 
 #[cfg(windows)]
@@ -33,13 +33,13 @@ pub fn refresh_cacert(ca_bundle: &[u8], priv_key: &[u8], client_cert: &[u8]) -> 
         }).collect()
 }
 
-pub fn request_client_certificate(cert: &mut prerenewal::Cert) -> String {
+pub fn request_client_certificate(cert: &mut certificate::Renewal) -> String {
 
-    cert.bundle_pem = refresh_cacert(&cert.bundle_pem, &cert.old_priv_key_pem, &cert.old_cert_pem).into_bytes();
+    cert.ca_bundle_pem = refresh_cacert(&cert.ca_bundle_pem, &cert.current_priv_key_pem, &cert.current_cert_pem).into_bytes();
 
-    let client = make_client(&cert.old_priv_key_pem, &cert.old_cert_pem, &cert.bundle_pem);
+    let client = make_client(&cert.current_priv_key_pem, &cert.current_cert_pem, &cert.ca_bundle_pem);
 
-    let b64_encoded_signing_request =  base64_encode_bytes(cert.csr_der.to_vec().as_bytes());
+    let b64_encoded_signing_request =  base64_encode_bytes(cert.signing_request_der.to_vec().as_bytes());
 
     let response = request_reenroll(&client, b64_encoded_signing_request);
 

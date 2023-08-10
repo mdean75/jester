@@ -3,7 +3,7 @@ use x509_parser::nom::AsBytes;
 use x509_parser::certificate::X509Certificate;
 use rcgen::KeyPair;
 
-pub fn validate(old: X509Certificate, new: X509Certificate, priv_key: KeyPair, expire_days: u64) -> Result<(), String> {
+pub fn validate(old: &X509Certificate, new: X509Certificate, priv_key: &KeyPair, expire_days: u64) -> Result<String, String> {
     // check expiration
     if !minimum_valid_period(&new, expire_days) {
         return Err("certificate validity period is less than required grace period".to_string())
@@ -19,11 +19,11 @@ pub fn validate(old: X509Certificate, new: X509Certificate, priv_key: KeyPair, e
         return Err("private key public key and certificate public key are not the same".to_string())
     }
 
-    Ok(())
+    Ok("Renewed certificate passed all validation steps".to_string())
 }
 
 fn minimum_valid_period(cert: &X509Certificate, grace_period_days: u64) -> bool {
-    let minimum_days_before_expiration = Duration::new(60*60*24* grace_period_days, 0);
+    let minimum_days_before_expiration = Duration::from_secs(60*60*24*grace_period_days);//Duration::new(60*60*24* grace_period_days, 0);
     // todo: get rid of this unwrap
     if let Some(duration_to_expiration) = cert.validity.time_to_expiration() {
         duration_to_expiration >= minimum_days_before_expiration
@@ -76,7 +76,7 @@ mod tests {
         let (_, old_cert) = parse_x509_certificate(cert_der.as_slice()).unwrap();
         let (_, new_cert) = parse_x509_certificate(cert_der.as_slice()).unwrap();
 
-        assert_eq!(validate(old_cert, new_cert, key_pair_clone, 10), Ok(()))
+        assert_eq!(validate(&old_cert, new_cert, &key_pair_clone, 10), Ok("Renewed certificate passed all validation steps".to_string()))
     }
 
     #[test]
@@ -103,7 +103,7 @@ mod tests {
         let (_, old_cert) = parse_x509_certificate(cert_der.as_slice()).unwrap();
         let (_, new_cert) = parse_x509_certificate(cert_der.as_slice()).unwrap();
 
-        assert_eq!(validate(old_cert, new_cert, key_pair_clone, 50), Err("certificate validity period is less than required grace period".to_string()))
+        assert_eq!(validate(&old_cert, new_cert, &key_pair_clone, 50), Err("certificate validity period is less than required grace period".to_string()))
     }
 
     #[test]
@@ -148,7 +148,7 @@ mod tests {
         let (_, old_cert) = parse_x509_certificate(cert_der.as_slice()).unwrap();
         let (_, new_cert) = parse_x509_certificate(new_cert_der.as_slice()).unwrap();
 
-        assert_eq!(validate(old_cert, new_cert, key_pair_clone, 10), Err("renewed certificate fields are not the same".to_string()))
+        assert_eq!(validate(&old_cert, new_cert, &key_pair_clone, 10), Err("renewed certificate fields are not the same".to_string()))
     }
 
     #[test]
@@ -181,7 +181,7 @@ mod tests {
         let (_, old_cert) = parse_x509_certificate(cert_der.as_slice()).unwrap();
         let (_, new_cert) = parse_x509_certificate(cert_der.as_slice()).unwrap();
 
-        assert_eq!(validate(old_cert, new_cert, bad_key_pair, 10), Err("private key public key and certificate public key are not the same".to_string()))
+        assert_eq!(validate(&old_cert, new_cert, &bad_key_pair, 10), Err("private key public key and certificate public key are not the same".to_string()))
     }
 
     #[test]

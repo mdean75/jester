@@ -11,7 +11,9 @@ use rcgen::{DistinguishedName, DnType, DnValue, KeyPair, SanType};
 use x509_parser::nom::{AsBytes};
 use x509_parser::pem::Pem;
 use x509_parser::prelude::{GeneralName};
-use crate::prerenewal::SigAlg::{*};
+use crate::certificate::SigAlg::{*};
+use crate::http;
+use crate::validate::validate;
 
 #[derive(Debug)]
 pub struct RsaKeyLength {
@@ -43,53 +45,47 @@ impl Display for SigAlg {
     }
 }
 
-pub struct Cert<'a> {
-    pub old_cert: Option<x509_parser::certificate::X509Certificate<'a>>,
-    pub old_cert_pem: Vec<u8>,
-    pub renewed_cert: Option<x509_parser::certificate::X509Certificate<'a>>,
-    // pub priv_key: Option<Rc<rcgen::KeyPair>>,
-    pub priv_key: Option<rcgen::KeyPair>,
-    pub priv_key_pem: Vec<u8>,
-    pub old_priv_key_pem: Vec<u8>,
-    pub csr: Option<rcgen::CertificateSigningRequest>,
-    pub csr_pem: String,
-    pub csr_der: Vec<u8>,
-    pub signature_alg: SigAlg, //&'a SignatureAlgorithm
-    pub bundle_pem: Vec<u8>,
+pub struct Renewal<'a> {
+    // needed to extract fields for signing request
+    pub current_cert: Option<x509_parser::certificate::X509Certificate<'a>>,
+    // needed to make api calls
+    pub current_cert_pem: Vec<u8>,
+    // needed to generate signing request
+    pub new_priv_key: Option<rcgen::KeyPair>,
+    // needed for api calls
+    pub current_priv_key_pem: Vec<u8>,
+    // need this as body for the renew api call
+    pub signing_request_der: Vec<u8>, // looks like this is really all i need in http
+    // needed to know what type of keypair to generate
+    pub signature_algorithm: SigAlg, //&'a SignatureAlgorithm
+    // needed for api calls
+    pub ca_bundle_pem: Vec<u8>,
 }
 
-impl <'a> Default for Cert<'a> {
+impl <'a> Default for Renewal<'a> {
     fn default() -> Self {
-        Cert{
-            old_cert: None,
-            old_cert_pem: vec![],
-            renewed_cert: None,
-            priv_key: None,
-            priv_key_pem: vec![],
-            old_priv_key_pem: vec![],
-            csr: None,
-            csr_pem: "".to_string(),
-            csr_der: vec![],
-            signature_alg: Rsa(&RSA3072),
-            bundle_pem: vec![]
+        Renewal {
+            current_cert: None,
+            current_cert_pem: vec![],
+            new_priv_key: None,
+            current_priv_key_pem: vec![],
+            signing_request_der: vec![],
+            signature_algorithm: Rsa(&RSA3072),
+            ca_bundle_pem: vec![]
         }
     }
 }
 
-impl <'a> Cert<'a> {
+impl <'a> Renewal<'a> {
     pub fn new(alg: SigAlg) -> Self {
-        Cert{
-            old_cert: None,
-            old_cert_pem: vec![],
-            renewed_cert: None,
-            priv_key: None,
-            priv_key_pem: vec![],
-            old_priv_key_pem: vec![],
-            csr: None,
-            csr_pem: "".to_string(),
-            csr_der: vec![],
-            signature_alg: alg,
-            bundle_pem: vec![]
+        Renewal {
+            current_cert: None,
+            current_cert_pem: vec![],
+            new_priv_key: None,
+            current_priv_key_pem: vec![],
+            signing_request_der: vec![],
+            signature_algorithm: alg,
+            ca_bundle_pem: vec![]
         }
     }
 
@@ -97,17 +93,15 @@ impl <'a> Cert<'a> {
 
         let (_, old_cert) = x509_parser::parse_x509_certificate(pem.contents.as_bytes()).map_err(|e| e.to_string())?;
 
-        self.old_cert = Some(old_cert);
-        self.old_cert_pem = pem.contents.to_vec();
-        // self.old_cert_pem = pem.contents.as_slice().to_vec();
-        // println!("load old cert pem: {}", self.old_cert_pem)
+        self.current_cert = Some(old_cert);
+        self.current_cert_pem = pem.contents.to_vec();
 
         Ok(())
     }
 
     pub fn load_cacerts(&mut self, path: PathBuf) -> Result<(), String> {
         let pem_bytes = fs::read(path).map_err(|e| e.to_string())?;
-        self.bundle_pem = pem_bytes;
+        self.ca_bundle_pem = pem_bytes;
         
         Ok(())
     }
@@ -115,25 +109,14 @@ impl <'a> Cert<'a> {
     pub fn load_privatekey(&mut self, path: PathBuf) -> Result<(), String> {
 
         let pem_bytes = fs::read(path).unwrap();
-        self.old_priv_key_pem = pem_bytes.to_vec();
-
-        // self.ol = Some(rcgen::KeyPair::from_pem(String::from_utf8(pem_bytes).unwrap().as_str()).unwrap());
-
-        Ok(())
-    }
-
-    pub fn load_new_cert(&mut self, pem: &'a Pem) -> Result<(), String> {
-
-        let (_, new_cert) = x509_parser::parse_x509_certificate(pem.contents.as_bytes()).map_err(|e| e.to_string())?;
-
-        self.renewed_cert = Some(new_cert);
+        self.current_priv_key_pem = pem_bytes.to_vec();
 
         Ok(())
     }
 
     pub fn generate_key_pair(&mut self) -> Result<(), String> {
 
-        let signature_algorithm = match self.signature_alg {
+        let private_key_keypair = match self.signature_algorithm {
             Rsa(bits) => {
                 // from https://www.jscape.com/blog/should-i-start-using-4096-bit-rsa-keys and
                 // https://nvlpubs.nist.gov/nistpubs/specialpublications/nist.sp.800-57pt1r4.pdf:
@@ -148,33 +131,29 @@ impl <'a> Cert<'a> {
                 let key = rsa::RsaPrivateKey::new(&mut rng, bits.bit_size).map_err(|e| e.to_string())?;
                 let key_pem = key.to_pkcs8_pem(LineEnding::default()).map_err(|e| e.to_string())?;
 
-                self.priv_key_pem = key_pem.to_string().into_bytes();
-
                 KeyPair::from_pem(key_pem.as_str()).map_err(|e| e.to_string())?
             }
             EcdsaP256 => {
                 let secret_key = p256::SecretKey::random(&mut OsRng);
                 let secret_key_pem = secret_key.to_pkcs8_pem(LineEnding::default()).map_err(|e| e.to_string())?;
 
-                self.priv_key_pem = secret_key_pem.to_string().into_bytes();
                 KeyPair::from_pem(secret_key_pem.as_str()).map_err(|e| e.to_string())?
             }
             EcdsaP384 => {
                 let key = p384::SecretKey::random(&mut OsRng);
                 let key_pem = key.to_pkcs8_pem(LineEnding::default()).map_err(|e| e.to_string())?;
 
-                self.priv_key_pem = key_pem.to_string().into_bytes();
                 KeyPair::from_pem(key_pem.as_str()).map_err(|e| e.to_string())?
             }
         };
 
-        self.priv_key = Some(signature_algorithm);
+        self.new_priv_key = Some(private_key_keypair);
         Ok(())
     }
 
     pub fn with_signature_alg(&mut self, alg: SigAlg) -> Result<(), String> {
 
-        self.signature_alg = alg;
+        self.signature_algorithm = alg;
 
         Ok(())
     }
@@ -182,7 +161,7 @@ impl <'a> Cert<'a> {
     pub fn generate_signing_request(&mut self) -> Result<(), String> { //-> Result<CertificateSigningRequest, String> {
         let mut params = rcgen::CertificateParams::default();
 
-        if let Some(old_cert) = self.old_cert.as_ref() {
+        if let Some(old_cert) = self.current_cert.as_ref() {
             if let Some(san) = old_cert.subject_alternative_name().map_err(|e| e.to_string())? {
 
                 let san_type_list: Result<Vec<SanType>, String> = san.value.general_names
@@ -259,9 +238,12 @@ impl <'a> Cert<'a> {
             params.distinguished_name = dn;
         }
 
-        let key_pair = &mut self.priv_key;
-        params.key_pair = key_pair.take();
-        match self.signature_alg {
+        // to avoid a move from self, make a der encoded key pair from new_priv_key then create a
+        // keypair from the der that can be used in params
+        let key_pair_der = self.new_priv_key.as_ref().unwrap().serialized_der();
+        params.key_pair = Some(KeyPair::from_der(key_pair_der).unwrap());
+
+        match self.signature_algorithm {
             Rsa(_) => {params.alg = &rcgen::PKCS_RSA_SHA256}
             EcdsaP256 => {params.alg = &rcgen::PKCS_ECDSA_P256_SHA256}
             EcdsaP384 => {params.alg = &rcgen::PKCS_ECDSA_P384_SHA384},
@@ -273,13 +255,24 @@ impl <'a> Cert<'a> {
         let csr_der = templ.serialize_request_der().map_err(|e| e.to_string())?;
         let csr = rcgen::CertificateSigningRequest::from_pem(csr_pem.as_str()).map_err(|e| e.to_string())?;
 
-        self.csr_der = csr_der;
-        self.csr = Some(csr);
-        self.csr_pem = csr_pem;
+        self.signing_request_der = csr_der;
 
         Ok(())
 
     }
+
+    pub fn renew(&mut self) -> String {
+        let new_cert_pem = http::request_client_certificate(self);
+
+        let pem = x509_parser::pem::parse_x509_pem(new_cert_pem.as_bytes()).unwrap();
+        let renewed_cert = x509_parser::parse_x509_certificate(pem.1.contents.as_slice()).unwrap();
+
+        let validate_result = validate(self.current_cert.as_ref().unwrap(), renewed_cert.1, self.new_priv_key.as_ref().unwrap(), 10).unwrap();
+        println!("{}", validate_result);
+
+        new_cert_pem
+    }
+
 }
 
 pub fn pem_to_der_bytes(path: PathBuf) -> Result<(Pem, Vec<u8>), String> {
@@ -297,16 +290,16 @@ mod tests {
 
     #[test]
     fn test_default_cert() {
-        let cert = Cert::default();
+        let cert = Renewal::default();
 
-        assert_eq!(cert.signature_alg.to_string(), Rsa(&RSA3072).to_string())
+        assert_eq!(cert.signature_algorithm.to_string(), Rsa(&RSA3072).to_string())
     }
 
     #[test]
     fn test_new_cert() {
-        let cert = Cert::new(EcdsaP256);
+        let cert = Renewal::new(EcdsaP256);
 
-        assert_eq!(cert.signature_alg.to_string(), EcdsaP256.to_string())
+        assert_eq!(cert.signature_algorithm.to_string(), EcdsaP256.to_string())
     }
 
     #[test]
@@ -314,30 +307,30 @@ mod tests {
         let mut buf = BufReader::new(CERT_BYTES);
         let pem = Pem::iter_from_buffer(CERT_BYTES).next().unwrap().unwrap();
 
-        let mut cert = Cert::default();
+        let mut cert = Renewal::default();
         match cert.load_old_cert(&pem) {
             Ok(_) => {
-                assert_eq!(cert.old_cert.is_some(), true)
+                assert_eq!(cert.current_cert.is_some(), true)
             },
             Err(e) => panic!("load old cert failed: {e}"),
         }
 
     }
 
-    #[test]
-    fn test_load_new_cert_should_succeed() {
-        let mut buf = BufReader::new(CERT_BYTES);
-        let pem = Pem::iter_from_buffer(CERT_BYTES).next().unwrap().unwrap();
-
-        let mut cert = Cert::default();
-        match cert.load_new_cert(&pem) {
-            Ok(_) => {
-                assert_eq!(cert.renewed_cert.is_some(), true)
-            },
-            Err(e) => panic!("load old cert failed: {e}"),
-        }
-
-    }
+    // #[test]
+    // fn test_load_new_cert_should_succeed() {
+    //     let mut buf = BufReader::new(CERT_BYTES);
+    //     let pem = Pem::iter_from_buffer(CERT_BYTES).next().unwrap().unwrap();
+    //
+    //     let mut cert = Renewal::default();
+    //     match cert.load_new_cert(&pem) {
+    //         Ok(_) => {
+    //             assert_eq!(cert.renewed_cert.is_some(), true)
+    //         },
+    //         Err(e) => panic!("load old cert failed: {e}"),
+    //     }
+    //
+    // }
 
     pub static CERT_BYTES: &[u8] = b"-----BEGIN CERTIFICATE-----
 MIIBrjCCAVSgAwIBAgIILYaEFjUTHAQwCgYIKoZIzj0EAwIwIjEgMB4GA1UEAxMX
