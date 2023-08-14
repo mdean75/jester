@@ -46,6 +46,12 @@ Behaviors:
 - load app config (cli args)
 - load and register certificate config
 
+Consideration:
+- use -c flag to pass app config which contains:
+  - server url, logfile, and path to certs to renew (or inlined)
+  - if -c not passed then each option needs manually set (server url and path to certs config)
+
+
 *note: everything is immutable
 
 #### Certificate
@@ -116,3 +122,21 @@ Dependencies
 #### misc
 - run autorenewal daemon or oneshot - cli flag
 - run server? - cli flag
+
+###### From est
+cli flags: 
+
+--certs-config
+  json file path to certs to renew
+
+--est-endpoint
+  est server api endpoint? no not endpoint, but server url
+
+autorenewal
+* renewal check - is it n days before expiry
+* save to dir
+* post renewal hook
+* orchestration
+
+uses http server for manual renewal, still needs to be a managed cert?
+then cli option to send the renewal request to the http server??

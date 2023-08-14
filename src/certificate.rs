@@ -7,6 +7,7 @@ use pkcs8::{EncodePrivateKey, LineEnding};
 use rand::rngs::OsRng;
 use rand::thread_rng;
 use rcgen::{DistinguishedName, DnType, DnValue, KeyPair, SanType};
+use reqwest::IntoUrl;
 
 use x509_parser::nom::{AsBytes};
 use x509_parser::pem::Pem;
@@ -261,21 +262,21 @@ impl <'a> Renewal<'a> {
 
     }
 
-    pub fn renew(&mut self) -> String {
-        let new_cert_pem = http::request_client_certificate(self);
+    pub fn renew<U: IntoUrl>(&mut self, url: U) -> String {
+        let new_cert_pem = http::request_client_certificate(self, url);
 
         let pem = x509_parser::pem::parse_x509_pem(new_cert_pem.as_bytes()).unwrap();
         let renewed_cert = x509_parser::parse_x509_certificate(pem.1.contents.as_slice()).unwrap();
 
-        let validate_result = validate(self.current_cert.as_ref().unwrap(), renewed_cert.1, self.new_priv_key.as_ref().unwrap(), 10).unwrap();
-        println!("{}", validate_result);
+        // let validate_result = validate(self.current_cert.as_ref().unwrap(), renewed_cert.1, self.new_priv_key.as_ref().unwrap(), 10).unwrap();
+        // println!("{}", validate_result);
 
         new_cert_pem
     }
 
 }
 
-pub fn pem_to_der_bytes(path: PathBuf) -> Result<(Pem, Vec<u8>), String> {
+pub fn pem_to_der_bytes(path: &PathBuf) -> Result<(Pem, Vec<u8>), String> {
     let data = fs::read(path).map_err(|e| e.to_string())?;
     let (_, pem) = x509_parser::pem::parse_x509_pem(data.as_slice()).map_err(|e| e.to_string())?;
 

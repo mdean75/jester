@@ -5,11 +5,11 @@ use rustls::{ClientConfig, OwnedTrustAnchor, RootCertStore};
 use x509_parser::nom::{AsBytes};
 use picky::x509::pkcs7::Pkcs7;
 use reqwest::blocking::{Client, Response};
-use reqwest::Identity;
+use reqwest::{Identity, IntoUrl, Method};
 use base64_light::{base64_decode, base64_encode_bytes};
 
 
-use crate::certificate;
+use crate::{certificate, config};
 
 
 #[cfg(windows)]
@@ -18,11 +18,11 @@ const LINE_ENDING : &'static str = "\r\n";
 const LINE_ENDING : &'static str = "\n";
 
 
-pub fn refresh_cacert(ca_bundle: &[u8], priv_key: &[u8], client_cert: &[u8]) -> String {
+pub fn refresh_cacert<U: IntoUrl>(ca_bundle: &[u8], priv_key: &[u8], client_cert: &[u8], url: U) -> String {
 
     let client = make_client(priv_key, client_cert, ca_bundle);
 
-    let cacert_response = request_current_cacerts(&client);
+    let cacert_response = request_current_cacerts(&client, url);
 
     let b64 = base64_decode(cacert_response.unwrap().text().unwrap().as_str());
 
@@ -33,15 +33,15 @@ pub fn refresh_cacert(ca_bundle: &[u8], priv_key: &[u8], client_cert: &[u8]) -> 
         }).collect()
 }
 
-pub fn request_client_certificate(cert: &mut certificate::Renewal) -> String {
+pub fn request_client_certificate<U: IntoUrl>(cert: &mut certificate::Renewal, url: U) -> String {
 
-    cert.ca_bundle_pem = refresh_cacert(&cert.ca_bundle_pem, &cert.current_priv_key_pem, &cert.current_cert_pem).into_bytes();
+    cert.ca_bundle_pem = refresh_cacert(&cert.ca_bundle_pem, &cert.current_priv_key_pem, &cert.current_cert_pem, url.as_str()).into_bytes();
 
     let client = make_client(&cert.current_priv_key_pem, &cert.current_cert_pem, &cert.ca_bundle_pem);
 
     let b64_encoded_signing_request =  base64_encode_bytes(cert.signing_request_der.to_vec().as_bytes());
 
-    let response = request_reenroll(&client, b64_encoded_signing_request);
+    let response = request_reenroll(&client, b64_encoded_signing_request, url.as_str());
 
     match response {
         Ok(res) => {
@@ -69,15 +69,15 @@ fn decode_pkcs7_cert(encoded_cert: String) -> String {
     pem_str
 }
 
-fn request_current_cacerts(client: &Client) -> reqwest::Result<Response> {
-    client.get("https://192.168.40.211:8443/.well-known/est/cacerts")
+fn request_current_cacerts<U: IntoUrl>(client: &Client, url: U) -> reqwest::Result<Response> {
+    client.get(format!("{}/.well-known/est/cacerts", url.as_str()))
         .header(CONTENT_TYPE, "application/pkcs7-mime")
         .header("Content-Transfer-Encoding", "base64")
         .send()
 }
 
-fn request_reenroll(client: &Client, b64_encoded_signing_request: String) -> reqwest::Result<Response> {
-    client.post("https://192.168.40.211:8443/.well-known/est/simplereenroll")
+fn request_reenroll<U: IntoUrl>(client: &Client, b64_encoded_signing_request: String, url: U) -> reqwest::Result<Response> {
+    client.post(format!("{}/.well-known/est/simplereenroll", url.as_str()))
         .header(CONTENT_TYPE, "application/pkcs10")
         .header("Content-Transfer-Encoding", "base64")
         .body(b64_encoded_signing_request)

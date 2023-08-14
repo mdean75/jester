@@ -1,38 +1,64 @@
-use std::fs;
-use std::path::PathBuf;
+use std::{thread};
 use std::process::exit;
-use crate::certificate::{SigAlg};
+use clap::Parser;
+use signal_hook::consts::SIGINT;
+use signal_hook::iterator::{Signals};
+use crate::config::Subcommands;
 
 mod validate;
 mod certificate;
 mod http;
+mod config;
+mod autorenew;
 
 
 fn main() {
 
-    println!("Git Branch: {}", env!("VERGEN_GIT_BRANCH"));
-    println!("Git Commit: {}", env!("VERGEN_GIT_SHA"));
-    println!("Build Timestamp: {}", env!("VERGEN_BUILD_TIMESTAMP"));
-    println!("version: {}\n", env!("CARGO_PKG_VERSION"));
+    let app_config = config::CliArgs::parse();
+    config::APP_CONFIG.set(app_config).unwrap();
 
-    let mut ccx = certificate::Renewal::new(SigAlg::EcdsaP256);
+    let conf = config::APP_CONFIG.get().unwrap();
 
-    let (pem_bytes, raw_pem) = certificate::pem_to_der_bytes(PathBuf::from("renewed-cert.pem")).unwrap_or_else(|_| exit(2));
+    if config::APP_CONFIG.get().unwrap().build {
+        println!("{}", build_info());
+        exit(0)
+    }
 
-    ccx.load_old_cert(&pem_bytes);//.unwrap();
-    ccx.current_cert_pem = raw_pem;
-    ccx.load_privatekey(PathBuf::from("renewed-pkey.pem")).unwrap();
-    ccx.load_cacerts(PathBuf::from("client-certs/server-ca-bundle.pem")).unwrap();
+    match &conf.subcommand {
+        Some(Subcommands::Renew(renew_cert)) => {
+            match autorenew::renew_once(renew_cert) {
+                Ok(_) => {
+                    // println!("Successfully renewed and rekeyed certificate!");
+                    exit(0)
+                },
+                Err(e) => {
+                    println!("Certificate renewal failed: {}", e);
+                    exit(1)
+                }
+            }
+        },
+        Some(Subcommands::Autorenew(autorenew_config)) => {
+            thread::spawn(move || {
+                println!("starting autorenew monitor");
+                autorenew::auto_renew(autorenew_config).unwrap(); // currently this blocks, we will likely want to use asyn
+            });
+        }
+        None => {}
+    }
 
-    ccx.generate_key_pair();//.unwrap();
+    let sigint = Signals::new(vec![SIGINT]);
+    sigint.unwrap().wait();
 
-    ccx.generate_signing_request();
 
-    let new_cert_pem = ccx.renew();
+    println!("signal SIGINT caught ... exiting Jester")
 
-    fs::write("renewed-cert.pem", new_cert_pem).unwrap();
-    fs::write("renewed-pkey.pem", ccx.new_priv_key.unwrap().serialize_pem()).unwrap();
+}
 
-    println!("Successfully renewed and rekeyed certificate!")
+fn build_info() -> String {
+    let branch = env!("VERGEN_GIT_BRANCH");
+    let commit = env!("VERGEN_GIT_SHA");
+    let build_ts = env!("VERGEN_BUILD_TIMESTAMP");
+    let version = env!("CARGO_PKG_VERSION");
 
+    format!("Version: Jester {version}\nBuild Timestamp: {build_ts}\nBranch: {branch}\nCommit: {commit}\n")
 }
