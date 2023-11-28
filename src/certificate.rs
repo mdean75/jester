@@ -200,9 +200,12 @@ impl <'a> Renewal<'a> {
             }
 
 
-            // let remote211 = IpAddr::from_str("192.168.40.211").unwrap();
+            // let remote211 = IpAddr::from_str("127.0.0.1").unwrap();
             // let additional_sans: &mut Vec<SanType> = &mut vec![SanType::IpAddress(remote211)];
             //
+            // params.subject_alt_names.append(additional_sans);
+
+            // let additional_sans: &mut Vec<SanType> = &mut vec![SanType::DnsName("localhost".to_string())];
             // params.subject_alt_names.append(additional_sans);
 
 

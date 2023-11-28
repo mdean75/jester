@@ -32,6 +32,7 @@ serde_json = "1.0.104"
 serde = "1.0.183"
 signal-hook = "0.3.17"
 crossbeam-channel = { version = "0.5.8", features = ["crossbeam-utils"] }
+chrono = "0.4.26"
 
 
 [build-dependencies]

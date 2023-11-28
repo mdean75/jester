@@ -22,9 +22,9 @@ pub fn refresh_cacert<U: IntoUrl>(ca_bundle: &[u8], priv_key: &[u8], client_cert
 
     let client = make_client(priv_key, client_cert, ca_bundle);
 
-    let cacert_response = request_current_cacerts(&client, url);
+    let cacert_response = request_current_cacerts(&client, url).unwrap();
 
-    let b64 = base64_decode(cacert_response.unwrap().text().unwrap().as_str());
+    let b64 = base64_decode(cacert_response.text().unwrap().as_str());
 
     Pkcs7::from_der(&b64).unwrap()
         .decode_certificates().iter()

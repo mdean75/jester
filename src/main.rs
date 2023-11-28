@@ -3,7 +3,7 @@ use std::process::exit;
 use clap::Parser;
 use signal_hook::consts::SIGINT;
 use signal_hook::iterator::{Signals};
-use crate::config::Subcommands;
+use crate::config::{PrivateKeyType, Subcommands};
 
 mod validate;
 mod certificate;
@@ -26,6 +26,12 @@ fn main() {
 
     match &conf.subcommand {
         Some(Subcommands::Renew(renew_cert)) => {
+            // let key_type = match renew_cert.key_type {
+            //     PrivateKeyType::Rsa => {certificate::SigAlg::Rsa(&certificate::RSA2048)},
+            //     PrivateKeyType::Ecdsa256 => {certificate::SigAlg::EcdsaP256},
+            //     PrivateKeyType::Ecdsa384 => {certificate::SigAlg::EcdsaP384},
+            // };
+
             match autorenew::renew_once(renew_cert) {
                 Ok(_) => {
                     // println!("Successfully renewed and rekeyed certificate!");
