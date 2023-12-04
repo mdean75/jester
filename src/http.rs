@@ -1,4 +1,5 @@
 use base64_light::{base64_decode, base64_encode_bytes};
+use chrono::format;
 use picky::x509::pkcs7::Pkcs7;
 use reqwest::blocking::{Client, Response};
 use reqwest::header::CONTENT_TYPE;
@@ -24,17 +25,31 @@ pub fn refresh_cacert<U: IntoUrl>(
     let client = make_client(priv_key, client_cert, ca_bundle);
 
     let cacert_response = request_current_cacerts(&client, url).map_err(|e| e.to_string())?;
-    let b64 = base64_decode(cacert_response.text().map_err(|e| e.to_string())?.as_str());
+    let resp_clone = cacert_response.text().unwrap();//.clone();
+    let resp_clone = resp_clone.clone();
+    let b64 = base64_decode(resp_clone.clone().as_str());
 
 //    println!("{}", String::from_utf8_lossy(b64.as_bytes()));
 
-      let certs: String = Pkcs7::from_der(&b64).map_err(|e| e.to_string())?
-            .decode_certificates()
-            .iter()
-            .map(|ca| format!("{}\n", ca.to_pem().unwrap().to_string()))
-            .collect();
+    let pk_result = Pkcs7::from_der(&b64).map_err(|e| e.to_string());
+    match pk_result {
+        Ok(x) => {
+            let certs = x.decode_certificates().iter().map(|ca| format!("{}\n", ca.to_pem().unwrap().to_string())).collect();
+            return Ok(certs);
+        },
+        Err(e) => {
+            println!("{}", String::from_utf8_lossy(b64.as_bytes()));
+            println!("response from cacerts refresh: {}", resp_clone);
+            return Err(e);
+        }
+    }
+//      let certs: String = Pkcs7::from_der(&b64).map_err(|e| e.to_string())?
+            // .decode_certificates()
+            // .iter()
+            // .map(|ca| format!("{}\n", ca.to_pem().unwrap().to_string()))
+            // .collect();
 
-    Ok(certs)
+    //Ok(certs)
 }
 
 pub fn request_client_certificate<U: IntoUrl>(
